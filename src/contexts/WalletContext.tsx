@@ -58,10 +58,15 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setBalance(parsedUser.balance || 0);
       } else {
         // Create new user
+        // Handle phone number users
+        const isPhoneUser = currentUser.email && /^\d+$/.test(currentUser.email);
+        const displayEmail = isPhoneUser ? `+254${currentUser.email}` : currentUser.email || '';
+        
         const newUser: User = {
           uid: currentUser.uid,
-          email: currentUser.email || '',
+          email: displayEmail,
           displayName: currentUser.displayName || '',
+          phoneNumber: isPhoneUser ? `+254${currentUser.email}` : undefined,
           balance: 0,
           createdAt: new Date(),
           premiumStatus: false

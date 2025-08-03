@@ -37,13 +37,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
       if (user) {
         // User is signed in
+        // Handle temp email users (phone registrations)
+        const displayEmail = user.email?.includes('@phantompay.temp') 
+          ? user.email.replace('@phantompay.temp', '') 
+          : user.email;
+        
         setCurrentUser({
           uid: user.uid,
-          email: user.email,
+          email: displayEmail,
           displayName: user.displayName
         });
         // For demo purposes, also store in localStorage to simulate persistence across browser restarts
-        localStorage.setItem('phantompay_user', JSON.stringify({ uid: user.uid, email: user.email, displayName: user.displayName }));
+        localStorage.setItem('phantompay_user', JSON.stringify({ uid: user.uid, email: displayEmail, displayName: user.displayName }));
       } else {
         // User is signed out
         setCurrentUser(null);

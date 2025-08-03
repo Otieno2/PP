@@ -3,20 +3,12 @@ export interface User {
   email: string;
   displayName?: string;
   phoneNumber?: string;
-  walletBalance: number;
-  savingsBalance: number;
+  balance: number;
   rewardPoints?: number;
-  totalEarnedInterest: number;
   premiumStatus: boolean;
   premiumPlan?: string;
   premiumExpiry?: Date;
-  referralsCount: number;
-  referralEarnings: number;
-  kycVerified: boolean;
   createdAt: Date;
-  profile?: UserProfile;
-  withdrawalMethods?: WithdrawalMethod[];
-  defaultWithdrawal?: string;
 }
 
 export interface UserProfile {

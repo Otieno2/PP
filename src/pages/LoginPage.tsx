@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { Eye, EyeOff, Wallet, Mail, Lock, CheckCircle, ArrowLeft } from 'lucide-react';
+import { Eye, EyeOff, Wallet, Mail, Lock, CheckCircle, ArrowLeft, Phone } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
@@ -11,7 +11,9 @@ interface LoginForm {
 }
 
 interface RegisterForm {
-  email: string;
+  registrationMethod: 'email' | 'phone';
+  email?: string;
+  phoneNumber?: string;
   password: string;
   confirmPassword: string;
 }
@@ -22,17 +24,22 @@ interface VerificationForm {
 
 const LoginPage: React.FC = () => {
   const [isLogin, setIsLogin] = useState(true);
+  const [registrationMethod, setRegistrationMethod] = useState<'email' | 'phone'>('email');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [registrationStep, setRegistrationStep] = useState<'form' | 'verification'>('form');
-  const [pendingEmail, setPendingEmail] = useState('');
+  const [pendingContact, setPendingContact] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
   
   const { currentUser, login, register, loginWithGoogle } = useAuth();
   
   const loginForm = useForm<LoginForm>();
-  const registerForm = useForm<RegisterForm>();
+  const registerForm = useForm<RegisterForm>({
+    defaultValues: {
+      registrationMethod: 'email'
+    }
+  });
   const verificationForm = useForm<VerificationForm>();
 
   if (currentUser) {
@@ -43,12 +50,18 @@ const LoginPage: React.FC = () => {
     return Math.floor(100000 + Math.random() * 900000).toString();
   };
 
-  const sendVerificationEmail = async (email: string, code: string) => {
-    // Simulate sending email - in production, this would call your email service
-    console.log(`Sending verification email to ${email} with code: ${code}`);
+  const sendVerificationCode = async (contact: string, method: 'email' | 'phone', code: string) => {
+    // Simulate sending verification code - in production, this would call your email/SMS service
+    if (method === 'email') {
+      console.log(`Sending verification email to ${contact} with code: ${code}`);
+      toast.success(`Verification code sent to ${contact}! Check your inbox.`);
+    } else {
+      console.log(`Sending verification SMS to ${contact} with code: ${code}`);
+      toast.success(`Verification code sent to ${contact}! Check your messages.`);
+    }
     
     // Store the code temporarily (in production, store in backend)
-    localStorage.setItem(`verification_${email}`, JSON.stringify({
+    localStorage.setItem(`verification_${contact}`, JSON.stringify({
       code,
       timestamp: Date.now(),
       expires: Date.now() + 10 * 60 * 1000 // 10 minutes
@@ -56,8 +69,6 @@ const LoginPage: React.FC = () => {
 
     // Simulate email sending delay
     await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    toast.success(`Verification code sent to ${email}! Check your inbox.`);
   };
 
   const onLoginSubmit = async (data: LoginForm) => {
@@ -75,18 +86,22 @@ const LoginPage: React.FC = () => {
   const onRegisterSubmit = async (data: RegisterForm) => {
     setLoading(true);
     try {
+      const contact = data.registrationMethod === 'email' ? data.email! : data.phoneNumber!;
+      
       // Generate and send verification code
       const code = generateVerificationCode();
-      await sendVerificationEmail(data.email, code);
+      await sendVerificationCode(contact, data.registrationMethod, code);
       
       // Store registration data temporarily
-      localStorage.setItem(`pending_registration_${data.email}`, JSON.stringify({
+      localStorage.setItem(`pending_registration_${contact}`, JSON.stringify({
+        registrationMethod: data.registrationMethod,
         email: data.email,
+        phoneNumber: data.phoneNumber,
         password: data.password,
         timestamp: Date.now()
       }));
       
-      setPendingEmail(data.email);
+      setPendingContact(contact);
       setRegistrationStep('verification');
       
     } catch (error: any) {
@@ -100,7 +115,7 @@ const LoginPage: React.FC = () => {
     setLoading(true);
     try {
       // Verify the code
-      const storedData = localStorage.getItem(`verification_${pendingEmail}`);
+      const storedData = localStorage.getItem(`verification_${pendingContact}`);
       if (!storedData) {
         throw new Error('Verification code expired. Please try again.');
       }
@@ -108,7 +123,7 @@ const LoginPage: React.FC = () => {
       const { code, expires } = JSON.parse(storedData);
       
       if (Date.now() > expires) {
-        localStorage.removeItem(`verification_${pendingEmail}`);
+        localStorage.removeItem(`verification_${pendingContact}`);
         throw new Error('Verification code expired. Please try again.');
       }
 
@@ -117,19 +132,20 @@ const LoginPage: React.FC = () => {
       }
 
       // Get pending registration data
-      const pendingData = localStorage.getItem(`pending_registration_${pendingEmail}`);
+      const pendingData = localStorage.getItem(`pending_registration_${pendingContact}`);
       if (!pendingData) {
         throw new Error('Registration data not found. Please start over.');
       }
 
-      const { email, password } = JSON.parse(pendingData);
+      const { registrationMethod, email, phoneNumber, password } = JSON.parse(pendingData);
 
-      // Complete registration
-      await register(email, password);
+      // Complete registration - use email for Firebase Auth (create temp email for phone users)
+      const authEmail = registrationMethod === 'email' ? email : `${phoneNumber.replace(/\D/g, '')}@phantompay.temp`;
+      await register(authEmail, password);
       
       // Clean up temporary data
-      localStorage.removeItem(`verification_${pendingEmail}`);
-      localStorage.removeItem(`pending_registration_${pendingEmail}`);
+      localStorage.removeItem(`verification_${pendingContact}`);
+      localStorage.removeItem(`pending_registration_${pendingContact}`);
       
       toast.success('Account created successfully! Welcome to PhantomPay! 🎉');
       
@@ -141,12 +157,13 @@ const LoginPage: React.FC = () => {
   };
 
   const handleResendCode = async () => {
-    if (!pendingEmail) return;
+    if (!pendingContact) return;
     
     setLoading(true);
     try {
       const code = generateVerificationCode();
-      await sendVerificationEmail(pendingEmail, code);
+      const method = pendingContact.includes('@') ? 'email' : 'phone';
+      await sendVerificationCode(pendingContact, method, code);
     } catch (error: any) {
       toast.error('Failed to resend code');
     } finally {
@@ -156,7 +173,7 @@ const LoginPage: React.FC = () => {
 
   const handleBackToRegistration = () => {
     setRegistrationStep('form');
-    setPendingEmail('');
+    setPendingContact('');
     setVerificationCode('');
   };
 
@@ -295,31 +312,108 @@ const LoginPage: React.FC = () => {
               </div>
 
               <form onSubmit={registerForm.handleSubmit(onRegisterSubmit)} className="space-y-6">
+                {/* Registration Method Selection */}
                 <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                    Email Address
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                    How would you like to register?
                   </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Mail className="h-5 w-5 text-gray-400" />
-                    </div>
-                    <input
-                      {...registerForm.register('email', { 
-                        required: 'Email is required',
-                        pattern: {
-                          value: /^\S+@\S+$/i,
-                          message: 'Invalid email address'
-                        }
-                      })}
-                      type="email"
-                      className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent transition-colors"
-                      placeholder="Enter your email"
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors ${
+                      registrationMethod === 'email' ? 'border-purple-500 bg-purple-50' : 'border-gray-300 hover:border-purple-300'
+                    }`}>
+                      <input
+                        {...registerForm.register('registrationMethod')}
+                        type="radio"
+                        value="email"
+                        onChange={() => setRegistrationMethod('email')}
+                        className="sr-only"
+                      />
+                      <div className="flex items-center">
+                        <Mail className="h-4 w-4 text-purple-600 mr-2" />
+                        <div>
+                          <p className="font-medium text-gray-900">Email</p>
+                          <p className="text-xs text-gray-600">Use email address</p>
+                        </div>
+                      </div>
+                    </label>
+                    <label className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors ${
+                      registrationMethod === 'phone' ? 'border-purple-500 bg-purple-50' : 'border-gray-300 hover:border-purple-300'
+                    }`}>
+                      <input
+                        {...registerForm.register('registrationMethod')}
+                        type="radio"
+                        value="phone"
+                        onChange={() => setRegistrationMethod('phone')}
+                        className="sr-only"
+                      />
+                      <div className="flex items-center">
+                        <Phone className="h-4 w-4 text-purple-600 mr-2" />
+                        <div>
+                          <p className="font-medium text-gray-900">Phone</p>
+                          <p className="text-xs text-gray-600">Use phone number</p>
+                        </div>
+                      </div>
+                    </label>
                   </div>
-                  {registerForm.formState.errors.email && (
-                    <p className="mt-1 text-sm text-red-600">{registerForm.formState.errors.email.message}</p>
-                  )}
                 </div>
+
+                {/* Email Field */}
+                {registrationMethod === 'email' && (
+                  <div>
+                    <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                      Email Address
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <Mail className="h-5 w-5 text-gray-400" />
+                      </div>
+                      <input
+                        {...registerForm.register('email', { 
+                          required: registrationMethod === 'email' ? 'Email is required' : false,
+                          pattern: registrationMethod === 'email' ? {
+                            value: /^\S+@\S+$/i,
+                            message: 'Invalid email address'
+                          } : undefined
+                        })}
+                        type="email"
+                        className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent transition-colors"
+                        placeholder="Enter your email"
+                      />
+                    </div>
+                    {registerForm.formState.errors.email && (
+                      <p className="mt-1 text-sm text-red-600">{registerForm.formState.errors.email.message}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Phone Number Field */}
+                {registrationMethod === 'phone' && (
+                  <div>
+                    <label htmlFor="phoneNumber" className="block text-sm font-medium text-gray-700 mb-2">
+                      Phone Number
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <Phone className="h-5 w-5 text-gray-400" />
+                      </div>
+                      <input
+                        {...registerForm.register('phoneNumber', { 
+                          required: registrationMethod === 'phone' ? 'Phone number is required' : false,
+                          pattern: registrationMethod === 'phone' ? {
+                            value: /^(\+254|0)[17]\d{8}$/,
+                            message: 'Please enter a valid Kenyan phone number'
+                          } : undefined
+                        })}
+                        type="tel"
+                        className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent transition-colors"
+                        placeholder="+254712345678 or 0712345678"
+                      />
+                    </div>
+                    {registerForm.formState.errors.phoneNumber && (
+                      <p className="mt-1 text-sm text-red-600">{registerForm.formState.errors.phoneNumber.message}</p>
+                    )}
+                  </div>
+                )}
 
                 <div>
                   <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
@@ -419,17 +513,21 @@ const LoginPage: React.FC = () => {
               <div className="mb-6">
                 <div className="flex items-center justify-center mb-4">
                   <div className="bg-green-100 p-3 rounded-full">
-                    <Mail className="h-8 w-8 text-green-600" />
+                    {pendingContact.includes('@') ? (
+                      <Mail className="h-8 w-8 text-green-600" />
+                    ) : (
+                      <Phone className="h-8 w-8 text-green-600" />
+                    )}
                   </div>
                 </div>
                 <h3 className="text-2xl font-bold text-gray-900 text-center">
-                  Verify Your Email
+                  {pendingContact.includes('@') ? 'Verify Your Email' : 'Verify Your Phone'}
                 </h3>
                 <p className="text-gray-600 text-center mt-2">
-                  We've sent a 6-digit verification code to
+                  We've sent a 6-digit verification code {pendingContact.includes('@') ? 'to' : 'via SMS to'}
                 </p>
                 <p className="text-purple-600 font-medium text-center">
-                  {pendingEmail}
+                  {pendingContact}
                 </p>
               </div>
 
@@ -483,7 +581,7 @@ const LoginPage: React.FC = () => {
                   disabled={loading}
                   className="w-full text-purple-600 hover:text-purple-700 font-medium text-sm disabled:opacity-50"
                 >
-                  Didn't receive the code? Resend
+                  Didn't receive the code? Resend {pendingContact.includes('@') ? 'Email' : 'SMS'}
                 </button>
                 
                 <button
@@ -532,7 +630,7 @@ const LoginPage: React.FC = () => {
                   onClick={() => {
                     setIsLogin(!isLogin);
                     setRegistrationStep('form');
-                    setPendingEmail('');
+                    setPendingContact('');
                   }}
                   className="text-sm text-purple-600 hover:text-purple-500 font-medium"
                 >
